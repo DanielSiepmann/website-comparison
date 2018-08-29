@@ -1,0 +1,23 @@
+{
+    "name": "codappix/website-comparison",
+    "description": "Compares a Website visually by comparing Screenshots.",
+    "type": "project",
+    "license": "GPL-2.0-or-later",
+    "authors": [
+        {
+            "name": "Daniel Siepmann",
+            "email": "coding@daniel-siepmann.de"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Codappix\\WebsiteComparison\\": "src/"
+        }
+    },
+    "require": {
+        "facebook/webdriver": "^1.6",
+        "symfony/console": "^4.1",
+        "symfony/process": "^4.1",
+        "guzzlehttp/psr7": "^1.4"
+    }
+}
