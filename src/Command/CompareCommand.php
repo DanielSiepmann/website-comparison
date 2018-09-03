@@ -21,23 +21,39 @@ namespace Codappix\WebsiteComparison\Command;
  * 02110-1301, USA.
  */
 
-use Codappix\WebsiteComparison\Service\ScreenshotCrawlerService;
-use Facebook\WebDriver\Chrome\ChromeDriver;
-use Facebook\WebDriver\Chrome\ChromeDriverService;
+use Codappix\WebsiteComparison\Service\Screenshot\CompareService;
+use Codappix\WebsiteComparison\Service\Screenshot\CrawlerService;
+use Codappix\WebsiteComparison\Service\Screenshot\Service;
+use Facebook\WebDriver\Remote\RemoteWebDriver;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Process\Exception\ProcessFailedException;
-use Symfony\Component\Process\Process;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+use Symfony\Component\EventDispatcher\GenericEvent;
 
 class CompareCommand extends Command
 {
     /**
-     * @var Process
+     * @var EventDispatcherInterface
      */
-    protected $chromeProcess;
+    protected $eventDispatcher;
+
+    /**
+     * @var RemoteWebDriver
+     */
+    protected $webDriver;
+
+    public function __construct(
+        EventDispatcherInterface $eventDispatcher,
+        RemoteWebDriver $webDriver
+    ) {
+        parent::__construct(null);
+
+        $this->eventDispatcher = $eventDispatcher;
+        $this->webDriver = $webDriver;
+    }
 
     protected function configure()
     {
@@ -85,35 +101,80 @@ class CompareCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $screenshotCrawler = new ScreenshotCrawlerService(
-            $output,
-            $this->getDriver(),
-            $input->getArgument('baseUrl'),
+
+        $screenshotService = new Service(
+            $this->eventDispatcher,
             $input->getOption('compareDir'),
             $input->getOption('screenshotWidth')
         );
-        $hasDifferences = $screenshotCrawler->compare(
+
+        $screenshotCrawler = new CrawlerService(
+            $this->webDriver,
+            $screenshotService,
+            $input->getArgument('baseUrl')
+        );
+
+        $compareService = new CompareService(
+            $this->eventDispatcher,
+            $screenshotService,
             $input->getOption('screenshotDir'),
             $input->getOption('diffResultDir')
         );
+        $this->registerEvents($output, $compareService);
 
-        if ($hasDifferences) {
+        $screenshotCrawler->crawl();
+
+        if ($compareService->hasDifferences()) {
             return 255;
         }
     }
 
-    protected function getDriver(): ChromeDriver
+    protected function registerEvents(OutputInterface $output, CompareService $compareService)
     {
-        $chromeDriverService = new ChromeDriverService(
-            '/usr/lib/chromium-browser/chromedriver',
-            9515,
-            [
-                '--port=9515',
-                '--headless',
-            ]
+        $this->eventDispatcher->addListener(
+            'service.screenshot.created',
+            function (GenericEvent $event) use ($output, $compareService) {
+                $output->writeln(sprintf(
+                    '<info>Comparing Screenshot for url "%s".</info>',
+                    $event->getArgument('url')
+                ));
+                $compareService->compareScreenshot(
+                    $event->getArgument('screenshot')
+                );
+            }
         );
-        $driver = ChromeDriver::start(null, $chromeDriverService);
 
-        return $driver;
+        if ($output->isVerbose()) {
+            $this->eventDispatcher->addListener(
+                'service.screenshot.isSame',
+                function (GenericEvent $event) use ($output) {
+                    $output->writeln(sprintf(
+                        '<info>Screenshot "%s" is as expected.</info>',
+                        $event->getArgument('screenshot')
+                    ));
+                }
+            );
+        }
+
+        $this->eventDispatcher->addListener(
+            'service.screenshot.isDifferent',
+            function (GenericEvent $event) use ($output) {
+                $output->writeln(sprintf(
+                    '<error>Screenshot "%s" is different, created diff at "%s".</error>',
+                    $event->getArgument('screenshot'),
+                    $event->getArgument('diff')
+                ));
+            }
+        );
+
+        $this->eventDispatcher->addListener(
+            'service.screenshot.error',
+            function (GenericEvent $event) use ($output) {
+                $output->writeln(sprintf(
+                    '<error>"%s"</error>',
+                    $event->getArgument('e')->getMessage()
+                ));
+            }
+        );
     }
 }

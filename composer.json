@@ -16,10 +16,11 @@
     },
     "require": {
         "php": "^7.2",
-        "php-imagick": "*",
+        "ext-imagick": "*",
         "facebook/webdriver": "^1.6",
         "symfony/console": "^4.1",
         "symfony/process": "^4.1",
-        "guzzlehttp/psr7": "^1.4"
+        "guzzlehttp/psr7": "^1.4",
+        "symfony/event-dispatcher": "^4.1"
     }
 }

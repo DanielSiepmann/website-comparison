@@ -5,9 +5,31 @@ require __DIR__ . '/vendor/autoload.php';
 
 use Codappix\WebsiteComparison\Command\CompareCommand;
 use Codappix\WebsiteComparison\Command\CreateBaseCommand;
+use Facebook\WebDriver\Chrome\ChromeDriver;
+use Facebook\WebDriver\Chrome\ChromeDriverService;
 use Symfony\Component\Console\Application;
+use Symfony\Component\EventDispatcher\EventDispatcher;
+
+$eventDispatcher = new EventDispatcher();
+
+$chromeDriver = (function () {
+    $chromeDriverService = new ChromeDriverService(
+        '/usr/lib/chromium-browser/chromedriver',
+        9515,
+        [
+            '--port=9515',
+            '--headless',
+        ]
+    );
+
+    return ChromeDriver::start(null, $chromeDriverService);
+})();
 
 $application = new Application();
-$application->add(new CreateBaseCommand());
-$application->add(new CompareCommand());
+$application->setDispatcher($eventDispatcher);
+
+// TODO: Use factory for commands, which injects event dispatcher and chrome driver?
+$application->add(new CreateBaseCommand($eventDispatcher, $chromeDriver));
+$application->add(new CompareCommand($eventDispatcher, $chromeDriver));
+
 $application->run();
