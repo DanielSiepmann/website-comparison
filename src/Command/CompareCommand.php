@@ -32,7 +32,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
 
-class CreateBaseCommand extends Command
+class CompareCommand extends Command
 {
     /**
      * @var Process
@@ -42,16 +42,30 @@ class CreateBaseCommand extends Command
     protected function configure()
     {
         $this
-            ->setName('comparison:createbase')
-            ->setDescription('Creates the base for comparison.')
+            ->setName('comparison:comparetobase')
+            ->setDescription('Compare curent state against saved base.')
             ->setHelp('Crawls and screenshots the original website, as a base for future comparison.')
 
             ->addOption(
                 'screenshotDir',
                 null,
                 InputOption::VALUE_OPTIONAL,
-                'Define the sub directory to use for storing created Screenshots.',
+                'Define the sub directory containing original Screenshots for comparison.',
                 'output/base'
+            )
+            ->addOption(
+                'compareDir',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Define the sub directory to use for storing created Screenshots.',
+                'output/compare'
+            )
+            ->addOption(
+                'diffResultDir',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Define the sub directory to use for storing created diffs.',
+                'output/diffResult'
             )
             ->addOption(
                 'screenshotWidth',
@@ -75,10 +89,17 @@ class CreateBaseCommand extends Command
             $output,
             $this->getDriver(),
             $input->getArgument('baseUrl'),
-            $input->getOption('screenshotDir'),
+            $input->getOption('compareDir'),
             $input->getOption('screenshotWidth')
         );
-        $screenshotCrawler->crawl();
+        $hasDifferences = $screenshotCrawler->compare(
+            $input->getOption('screenshotDir'),
+            $input->getOption('diffResultDir')
+        );
+
+        if ($hasDifferences) {
+            return 255;
+        }
     }
 
     protected function getDriver(): ChromeDriver

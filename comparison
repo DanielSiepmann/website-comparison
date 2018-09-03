@@ -3,9 +3,11 @@
 
 require __DIR__ . '/vendor/autoload.php';
 
+use Codappix\WebsiteComparison\Command\CompareCommand;
 use Codappix\WebsiteComparison\Command\CreateBaseCommand;
 use Symfony\Component\Console\Application;
 
 $application = new Application();
 $application->add(new CreateBaseCommand());
+$application->add(new CompareCommand());
 $application->run();

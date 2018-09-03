@@ -59,6 +59,21 @@ class ScreenshotCrawlerService
      */
     protected $screenshotWidth = 3840;
 
+    /**
+     * @var string
+     */
+    protected $compareDirectory = '';
+
+    /**
+     * @var string
+     */
+    protected $diffResultDir = '';
+
+    /**
+     * @var bool
+     */
+    protected $hasDifferences = false;
+
     public function __construct(
         OutputInterface $output,
         RemoteWebDriver $driver,
@@ -69,16 +84,13 @@ class ScreenshotCrawlerService
         $this->output = $output;
         $this->driver = $driver;
         $this->baseUrl = rtrim($baseUrl, '/') . '/';
-        $this->screenshotDir = implode(DIRECTORY_SEPARATOR, [
-            dirname(dirname(dirname(__FILE__))),
-            rtrim($screenshotDir, '/')
-        ]) . DIRECTORY_SEPARATOR;
+        $this->screenshotDir = $this->convertReltiveFolder($screenshotDir);
         $this->screenshotWidth = $screenshotWidth;
     }
 
     public function crawl()
     {
-        $this->createScreenshotDirIfNecessary();
+        $this->createDir($this->screenshotDir);
 
         $linkList = new UrlListDto();
         $linkList->addUrl($this->baseUrl);
@@ -88,7 +100,11 @@ class ScreenshotCrawlerService
             $screenshotHeight = $this->driver->findElement(WebDriverBy::cssSelector('body'))
                 ->getSize()
                 ->getHeight();
-            $this->createScreenshot($this->driver->getCurrentURL(), $screenshotHeight);
+            $createdScreenshot = $this->createScreenshot($this->driver->getCurrentURL(), $screenshotHeight);
+
+            if ($this->compareDirectory !== '') {
+                $this->compareScreenshot($createdScreenshot);
+            }
 
             $linkList->markUrlAsFinished($url);
             array_map([$linkList, 'addUrl'], $this->fetchFurtherLinks(
@@ -97,35 +113,44 @@ class ScreenshotCrawlerService
         }
     }
 
+    public function compare(string $compareDirectory, string $diffResultDir): bool
+    {
+        // TODO: Check for existence of directory
+        $this->compareDirectory = $this->convertReltiveFolder($compareDirectory);
+        $this->diffResultDir = $this->convertReltiveFolder($diffResultDir);
+        $this->crawl();
+
+        return $this->hasDifferences;
+    }
+
     /**
      * @throws \Exception If folder could not be created.
      */
-    protected function createScreenshotDirIfNecessary(string $subPath = '')
+    protected function createDir(string $dir)
     {
-        $dir = $this->screenshotDir;
-        if ($subPath !== '') {
-            $dir = $dir . DIRECTORY_SEPARATOR . trim($subPath, DIRECTORY_SEPARATOR);
-        }
         if (!is_dir($dir)) {
             mkdir($dir, 0777, true);
         }
 
-        if (!is_dir($this->screenshotDir)) {
-            throw new \Exception('Could not create screenshot dir: "' . $dir . '".', 1535528875);
+        if (!is_dir($dir)) {
+            throw new \Exception('Could not create directory: "' . $dir . '".', 1535528875);
         }
     }
 
-    protected function createScreenshot(string $url, int $height)
+    protected function createScreenshot(string $url, int $height): string
     {
+        // TODO: Include width in screenshot dir.
+        // This enables to compare different resolutions
         $screenshotTarget = $this->getScreenshotTarget($url);
-        $this->createScreenshotDirIfNecessary(dirname($screenshotTarget));
+        $this->createDir($this->screenshotDir . dirname($screenshotTarget));
+        $completeScreenshotTarget = $this->screenshotDir . $screenshotTarget;
 
         $screenshotProcess = new Process([
             'chromium-browser',
             '--headless',
             '--disable-gpu',
             '--window-size=' . $this->screenshotWidth . ',' . $height,
-            '--screenshot=' . $this->screenshotDir . $screenshotTarget,
+            '--screenshot=' . $completeScreenshotTarget,
             $url
         ]);
         // TODO: Check for success
@@ -134,10 +159,76 @@ class ScreenshotCrawlerService
         if ($this->output->isVerbose()) {
             $this->output->writeln(sprintf(
                 '<info>Created screenshot "%s" for url "%s".</info>',
-                $this->screenshotDir . $screenshotTarget,
+                $completeScreenshotTarget,
                 $url
             ));
         }
+
+        return $completeScreenshotTarget;
+    }
+
+    protected function compareScreenshot(string $screenshot)
+    {
+        try {
+            if ($this->doScreenshotsDiffer($screenshot)) {
+                $this->hasDifferences = true;
+                $this->output->writeln(sprintf(
+                    '<error>Screenshot "%s" is different then "%s". Diff was written to "%s".</error>',
+                    $screenshot,
+                    $this->getBaseScreenshot($screenshot),
+                    $this->getDiffFileName($screenshot)
+                ));
+                return;
+            }
+        } catch (\ImagickException $e) {
+            $this->output->writeln('<error>' . $e->getMessage() . '</error>');
+            return;
+        }
+
+        if ($this->output->isVerbose()) {
+            $this->output->writeln('<info>Screenshot is same.</info>');
+        }
+    }
+
+    protected function doScreenshotsDiffer(string $screenshot): bool
+    {
+        $actualScreenshot = new \Imagick($screenshot);
+        $actualGeometry = $actualScreenshot->getImageGeometry();
+        $compareScreenshot = new \Imagick($this->getBaseScreenshot($screenshot));
+        $compareGeometry = $compareScreenshot->getImageGeometry();
+
+        if ($actualGeometry !== $compareGeometry) {
+            throw new \ImagickException(sprintf(
+                "Screenshots don't have an equal geometry. Should be %sx%s but is %sx%s",
+                $compareGeometry['width'],
+                $compareGeometry['height'],
+                $actualGeometry['width'],
+                $actualGeometry['height']
+            ));
+        }
+
+        $result = $actualScreenshot->compareImages($compareScreenshot, \Imagick::METRIC_ROOTMEANSQUAREDERROR);
+        if ($result[1] > 0) {
+            /** @var \Imagick $diffScreenshot */
+            $diffScreenshot = $result[0];
+            $diffScreenshot->setImageFormat('png');
+            $fileName = $this->getDiffFileName($screenshot);
+            $this->createDir(dirname($fileName));
+            file_put_contents($fileName, $diffScreenshot);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    protected function getBaseScreenshot(string $compareScreenshot): string
+    {
+        return str_replace(
+            $this->screenshotDir,
+            $this->compareDirectory,
+            $compareScreenshot
+        );
     }
 
     protected function getScreenshotTarget(string $url)
@@ -203,5 +294,18 @@ class ScreenshotCrawlerService
         ];
 
         return in_array($uri->getHost(), $validHosts);
+    }
+
+    protected function convertReltiveFolder(string $folder): string
+    {
+        return implode(DIRECTORY_SEPARATOR, [
+            dirname(dirname(dirname(__FILE__))),
+            rtrim($folder, '/'),
+        ]) . DIRECTORY_SEPARATOR;
+    }
+
+    protected function getDiffFileName(string $screenshot): string
+    {
+        return str_replace($this->screenshotDir, $this->diffResultDir, $screenshot);
     }
 }
