@@ -54,11 +54,8 @@ class CrawlerService
         $this->baseUrl = rtrim($baseUrl, '/') . '/';
     }
 
-    public function crawl()
+    public function crawl(UrlListDto $linkList)
     {
-        $linkList = new UrlListDto();
-        $linkList->addUrl($this->baseUrl);
-
         while ($url = $linkList->getNextUrl()) {
             $this->driver->get($url);
             $screenshotHeight = $this->driver->findElement(WebDriverBy::cssSelector('body'))

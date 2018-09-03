@@ -22,21 +22,32 @@ namespace Codappix\WebsiteComparison\Model;
  */
 
 /**
+ * List of urls with two states.
  *
+ * Allows to have a single queue of urls to work on.
  */
-class UrlListDto
+class UrlListDto implements \JsonSerializable
 {
     protected $finishedUrls = [];
 
     protected $upcomingUrls = [];
 
-    public function addUrl(string $link)
+    public function addUrl(string $url)
     {
-        if ($this->isUrlKnown($link)) {
+        if ($this->isUrlKnown($url)) {
             return;
         }
 
-        $this->upcomingUrls[] = $link;
+        $this->upcomingUrls[] = $url;
+    }
+
+    public function addFinishedUrl(string $url)
+    {
+        if ($this->isUrlKnown($url)) {
+            return;
+        }
+
+        $this->finishedUrls[] = $url;
     }
 
     public function getNextUrl(): string
@@ -44,17 +55,25 @@ class UrlListDto
         return reset($this->upcomingUrls) ?? '';
     }
 
-    public function markUrlAsFinished(string $link)
+    public function markUrlAsFinished(string $url)
     {
-        $upcomingEntry = array_search($link, $this->upcomingUrls);
+        $upcomingEntry = array_search($url, $this->upcomingUrls);
 
         unset($this->upcomingUrls[$upcomingEntry]);
 
-        $this->finishedUrls[] = $link;
+        $this->finishedUrls[] = $url;
     }
 
-    public function isUrlKnown(string $link): bool
+    public function isUrlKnown(string $url): bool
     {
-        return in_array($link, $this->finishedUrls) || in_array($link, $this->upcomingUrls);
+        return in_array($url, $this->finishedUrls) || in_array($url, $this->upcomingUrls);
+    }
+
+    public function jsonSerialize()
+    {
+        return [
+            'finishedUrls' => $this->finishedUrls,
+            'upcomingUrls' => $this->upcomingUrls,
+        ];
     }
 }

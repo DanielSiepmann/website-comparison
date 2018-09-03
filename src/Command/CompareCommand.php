@@ -21,6 +21,8 @@ namespace Codappix\WebsiteComparison\Command;
  * 02110-1301, USA.
  */
 
+use Codappix\WebsiteComparison\Model\UrlListDto;
+use Codappix\WebsiteComparison\Model\UrlListDtoFactory;
 use Codappix\WebsiteComparison\Service\Screenshot\CompareService;
 use Codappix\WebsiteComparison\Service\Screenshot\CrawlerService;
 use Codappix\WebsiteComparison\Service\Screenshot\Service;
@@ -90,6 +92,13 @@ class CompareCommand extends Command
                 'The width for screen resolution and screenshots.',
                 3840
             )
+            ->addOption(
+                'recoverFile',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Path to json-File with state of stopped process, used to recover process.',
+                ''
+            )
 
             ->addArgument(
                 'baseUrl',
@@ -101,6 +110,7 @@ class CompareCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
+        $baseUrl = $input->getArgument('baseUrl');
 
         $screenshotService = new Service(
             $this->eventDispatcher,
@@ -111,7 +121,7 @@ class CompareCommand extends Command
         $screenshotCrawler = new CrawlerService(
             $this->webDriver,
             $screenshotService,
-            $input->getArgument('baseUrl')
+            $baseUrl
         );
 
         $compareService = new CompareService(
@@ -120,13 +130,45 @@ class CompareCommand extends Command
             $input->getOption('screenshotDir'),
             $input->getOption('diffResultDir')
         );
-        $this->registerEvents($output, $compareService);
 
-        $screenshotCrawler->crawl();
+        $linkList = $this->getLinkList($baseUrl, $input->getOption('recoverFile'));
+
+        $this->registerEvents($output, $compareService);
+        try {
+            $screenshotCrawler->crawl($linkList);
+        } catch (\Exception $e) {
+            file_put_contents($this->getJsonFilePath($screenshotService, $baseUrl), json_encode($linkList));
+            $output->writeln(sprintf(
+                '<comment>Saved current state for recovering in "%s".</comment>',
+                $this->getJsonFilePath($screenshotService, $baseUrl)
+            ));
+            throw $e;
+        }
 
         if ($compareService->hasDifferences()) {
             return 255;
         }
+    }
+
+    protected function getLinkList(
+        string $baseUrl,
+        string $recoverFile = ''
+    ): UrlListDto {
+        $factory = new UrlListDtoFactory();
+
+        if (trim($recoverFile) !== '') {
+            return $factory->createWithByConfigurationFile($recoverFile);
+        }
+
+        return $factory->createWithBaseUrl($baseUrl);
+    }
+
+    protected function getJsonFilePath(Service $screenshotService, string $baseUrl): string
+    {
+        return $screenshotService->getScreenshotDir() .
+            DIRECTORY_SEPARATOR .
+            $screenshotService->getScreenshotTarget($baseUrl, 'json')
+            ;
     }
 
     protected function registerEvents(OutputInterface $output, CompareService $compareService)

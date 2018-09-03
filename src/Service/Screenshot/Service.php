@@ -69,6 +69,7 @@ class Service
             '--screenshot=' . $completeScreenshotTarget,
             $url
         ]);
+        $screenshotProcess->setTimeout(60 * 2);
         // TODO: Check for success
         $screenshotProcess->run();
 
@@ -83,7 +84,7 @@ class Service
         return $completeScreenshotTarget;
     }
 
-    protected function getScreenshotTarget(string $url): string
+    public function getScreenshotTarget(string $url, string $suffix = 'png'): string
     {
         $uri = new Uri($url);
 
@@ -100,7 +101,7 @@ class Service
                     return trim($string, ' /') !== '';
                 }
             )
-        ) . '.png';
+        ) . '.' . $suffix;
     }
 
     public function getScreenshotDir(): string
