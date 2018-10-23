@@ -57,6 +57,7 @@ class CrawlerService
     public function crawl(UrlListDto $linkList)
     {
         while ($url = $linkList->getNextUrl()) {
+            $uri = new Uri($url);
             $this->driver->get($url);
             $screenshotHeight = $this->driver->findElement(WebDriverBy::cssSelector('body'))
                 ->getSize()
@@ -114,7 +115,24 @@ class CrawlerService
             '',
             (new Uri($this->baseUrl))->getHost(),
         ];
+        $validSchemas = [
+            'http',
+            'https',
+        ];
 
-        return in_array($uri->getHost(), $validHosts);
+        $invalidFileExtensions = [
+            '.pdf',
+            '.jpg',
+            '.gif',
+            '.svg',
+        ];
+
+        $pathEnding = substr($uri->getPath(), -4);
+
+        return in_array($uri->getHost(), $validHosts)
+            && in_array($uri->getScheme(), $validSchemas)
+            && !in_array($pathEnding, $invalidFileExtensions)
+            && strpos((string) $uri, 'eID=') === false
+            ;
     }
 }
